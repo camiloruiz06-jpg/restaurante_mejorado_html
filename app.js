@@ -657,7 +657,7 @@ function logout() { state.user = null; state.role = null; showLanding(); }
 async function handleGithubLogin() {
   const { error } = await db.auth.signInWithOAuth({
     provider: 'github',
-    options: { redirectTo: window.location.origin + window.location.pathname }
+    options: { redirectTo: window.location.origin }
   });
   if (error) showToast('Error al conectar con GitHub', 'error');
 }
