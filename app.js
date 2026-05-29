@@ -1096,7 +1096,7 @@ async function confirmarMesaSinCancelacion() {
   if(!id) return;
   await db.from('mesas').update({capacidad:cap,ubicacion:ubi,estado:est}).eq('id_mesa',id);
   closeModal();
-  showToast('Mesa actualizada. Las reservas existentes no fueron modificadas.','success');
+  showToast('Mesa actualizada. Ve a Reservas → ⚠️ Conflictos para ver las reservas afectadas.','info');
   loadMesas();
 }
 
@@ -1110,7 +1110,7 @@ async function eliminarMesa(id) {
 async function loadReservas() {
   document.getElementById('topbar-actions').innerHTML = `<button class="btn btn-gold" onclick="modalReserva()"><i class="fas fa-plus"></i> Nueva reserva</button>`;
   showLoading('admin-content');
-  const { data } = await db.from('reservas').select('*, clientes(nombre_cliente), mesas(ubicacion)').order('fecha',{ascending:false});
+  const { data } = await db.from('reservas').select('*, clientes(nombre_cliente), mesas(ubicacion, capacidad)').order('fecha',{ascending:false});
   document.getElementById('admin-content').innerHTML = `
     <div class="filters-bar">
       <div class="search-box"><i class="fas fa-search"></i><input id="sr" type="text" placeholder="Buscar por nombre o ID de cliente..." oninput="filtrarR()"/></div>
@@ -1118,6 +1118,7 @@ async function loadReservas() {
         <button class="btn-toggle active" onclick="filtrarRE(this,'todos')">Todas</button>
         <button class="btn-toggle" onclick="filtrarRE(this,'confirmada')">Confirmadas</button>
         <button class="btn-toggle" onclick="filtrarRE(this,'cancelada')">Canceladas</button>
+        <button class="btn-toggle" id="btn-conflictos" onclick="filtrarRE(this,'conflictos')" title="Reservas con más personas de lo que permite la capacidad actual de la mesa" style="color:#FFA000">⚠️ Conflictos</button>
       </div>
     </div>
     <div class="card"><div class="table-wrapper"><table>
@@ -1126,28 +1127,46 @@ async function loadReservas() {
     </table></div></div>
   `;
   window._rs = data||[]; window._rsE = 'todos';
-  renderR(window._rs);
+  filtrarR();
 }
 
-function filtrarR() { const q=document.getElementById('sr')?.value.toLowerCase()||''; let d=window._rs; if(window._rsE!=='todos') d=d.filter(r=>r.estado_reserva===window._rsE); if(q) d=d.filter(r=>r.clientes?.nombre_cliente?.toLowerCase().includes(q)||String(r.id_cliente).includes(q)); renderR(d); }
+function filtrarR() {
+  const q=document.getElementById('sr')?.value.toLowerCase()||'';
+  let d=window._rs;
+  if(window._rsE==='conflictos') {
+    d=d.filter(r=>r.estado_reserva==='confirmada' && r.mesas?.capacidad && r.numero_personas > r.mesas.capacidad);
+  } else if(window._rsE!=='todos') {
+    d=d.filter(r=>r.estado_reserva===window._rsE);
+  }
+  if(q) d=d.filter(r=>r.clientes?.nombre_cliente?.toLowerCase().includes(q)||String(r.id_cliente).includes(q));
+  // Actualizar contador en el botón de conflictos
+  const totalConf=(window._rs||[]).filter(r=>r.estado_reserva==='confirmada'&&r.mesas?.capacidad&&r.numero_personas>r.mesas.capacidad).length;
+  const btnC=document.getElementById('btn-conflictos');
+  if(btnC) btnC.innerHTML=`⚠️ Conflictos${totalConf>0?` <span style="background:#FFA000;color:#0C0B09;border-radius:10px;padding:0 6px;font-size:11px;font-weight:700;margin-left:2px">${totalConf}</span>`:''}`;
+  renderR(d);
+}
 function filtrarRE(btn,e) { document.querySelectorAll('.btn-toggle').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); window._rsE=e; filtrarR(); }
 
 function renderR(list) {
   const t=document.getElementById('rt'); if(!t) return;
-  if(!list.length){t.innerHTML=`<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-soft)">Sin reservas</td></tr>`;return;}
-  t.innerHTML = list.map(r=>`
-    <tr>
+  if(!list.length){t.innerHTML=`<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-soft)">Sin reservas${window._rsE==='conflictos'?' con capacidad excedida':''}</td></tr>`;return;}
+  t.innerHTML = list.map(r=>{
+    const conflicto = r.estado_reserva==='confirmada' && r.mesas?.capacidad && r.numero_personas > r.mesas.capacidad;
+    return `
+    <tr${conflicto?' style="background:rgba(255,160,0,0.07)"':''}>
       <td><strong style="color:var(--gold)">#${r.id_reservas}</strong></td>
       <td>${r.clientes?.nombre_cliente||'—'}</td>
       <td>Mesa ${r.id_mesa}${r.mesas?.ubicacion?' · '+r.mesas.ubicacion:''}</td>
-      <td>${r.fecha}</td><td>${r.hora?.substring(0,5)}</td><td>${r.numero_personas}</td>
+      <td>${r.fecha}</td><td>${r.hora?.substring(0,5)}</td>
+      <td>${r.numero_personas}${conflicto?` <span title="Supera capacidad actual de la mesa (${r.mesas.capacidad}p máx.)" style="cursor:help;font-size:13px">⚠️</span>`:''}</td>
       <td style="max-width:140px;font-size:12px;color:var(--text-soft)">${r.observaciones||'—'}</td>
       <td><span class="badge ${r.estado_reserva==='confirmada'?'badge-success':'badge-error'}">${r.estado_reserva}</span></td>
       <td><div style="display:flex;gap:6px">
         <button class="btn btn-info btn-icon btn-sm" onclick="modalReserva(${r.id_reservas})" title="Editar"><i class="fas fa-edit"></i></button>
         ${r.estado_reserva==='confirmada'?`<button class="btn btn-danger btn-icon btn-sm" onclick="cancelarR(${r.id_reservas})" title="Cancelar"><i class="fas fa-ban"></i></button>`:''}
       </div></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 async function modalReserva(id = null) {
