@@ -1298,3 +1298,151 @@ tbody td { padding: 13px 16px; color: var(--text); vertical-align: middle; }
 @keyframes spin        { to   { transform: rotate(360deg) } }
 
 .animate { animation: fadeInUp 0.5s ease both; }
+
+/* ═══════════════════════════════════════
+   RESPONSIVE — TABLET (≤ 1024px)
+═══════════════════════════════════════ */
+@media (max-width: 1024px) {
+  .land-nav        { padding: 16px 28px; }
+  .land-nav.scrolled { padding: 12px 28px; }
+  .section         { padding: 70px 28px; }
+  .about-grid      { grid-template-columns: 1fr; gap: 40px; }
+  .about-img-wrap img { height: 320px; }
+  .contact-grid    { grid-template-columns: 1fr; gap: 36px; }
+  .footer-grid     { grid-template-columns: 1fr 1fr; gap: 28px; }
+  .stats-bar       { gap: 40px; padding: 20px 28px; }
+}
+
+/* ═══════════════════════════════════════
+   RESPONSIVE — MÓVIL (≤ 768px)
+═══════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* ── LANDING navbar ─────────── */
+  .nav-links  { display: none; }
+  .land-nav   { padding: 14px 20px; }
+  .land-nav.scrolled { padding: 10px 20px; }
+
+  /* ── STATS bar ──────────────── */
+  .stats-bar  { gap: 20px; padding: 18px 20px; flex-wrap: wrap; justify-content: space-around; }
+  .stat-item .num { font-size: 26px; }
+
+  /* ── SECCIONES ──────────────── */
+  .section      { padding: 48px 20px; }
+  .section-full { padding: 48px 0; }
+
+  /* ── HERO ───────────────────── */
+  .hero-desc { font-size: 14px; padding: 0 8px; }
+  .hero-btns { flex-direction: column; align-items: center; gap: 10px; }
+
+  /* ── FOOTER ─────────────────── */
+  .footer       { padding: 40px 20px 24px; }
+  .footer-grid  { grid-template-columns: 1fr 1fr; gap: 22px; }
+  .footer-bottom { flex-direction: column; gap: 8px; text-align: center; }
+
+  /* ── AUTH — ocultar panel izq ─ */
+  .auth-page  { grid-template-columns: 1fr; }
+  .auth-left  { display: none; }
+  .auth-right { padding: 40px 24px; align-items: flex-start; padding-top: 60px; }
+
+  /* ── FORMULARIOS ─────────────── */
+  .form-row { grid-template-columns: 1fr; }
+
+  /* ── ADMIN sidebar — oculto mobile ─ */
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 300;
+    box-shadow: none;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: 4px 0 40px rgba(0,0,0,0.85);
+  }
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 299;
+    backdrop-filter: blur(2px);
+  }
+  .sidebar-backdrop.show { display: block; }
+  .sidebar-toggle { display: flex !important; }
+  .admin-main    { margin-left: 0 !important; width: 100% !important; }
+  .admin-topbar  { padding: 14px 16px; }
+  .admin-content { padding: 16px; }
+
+  /* ── STATS GRID ─────────────── */
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* ── DASHBOARD grid 1fr 1fr → 1fr ─ */
+  #admin-content div[style*="grid-template-columns:1fr 1fr"],
+  #admin-content div[style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── TOAST ──────────────────── */
+  #toast-container { right: 12px; left: 12px; bottom: 16px; }
+  .toast { min-width: unset; }
+
+  /* ── MODAL ──────────────────── */
+  .modal { padding: 24px 18px; }
+
+  /* ── CLIENTE — barra inferior ─ */
+  .client-topbar { padding: 12px 20px; }
+  .client-nav {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--sidebar);
+    border-top: 1px solid var(--border-gold);
+    padding: 6px 4px;
+    justify-content: space-around;
+    z-index: 100;
+    gap: 0;
+  }
+  .c-nav-item {
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 8px;
+    font-size: 10px;
+    flex: 1;
+    justify-content: center;
+    border-radius: 8px;
+  }
+  .c-nav-item i { font-size: 17px; }
+  .client-content { padding: 20px 16px 90px; }
+}
+
+/* ═══════════════════════════════════════
+   RESPONSIVE — TELÉFONO PEQUEÑO (≤ 480px)
+═══════════════════════════════════════ */
+@media (max-width: 480px) {
+  .footer-grid  { grid-template-columns: 1fr; }
+  .about-img-wrap img { height: 220px; }
+  .nav-btns .btn { padding: 9px 14px; font-size: 12px; }
+  .stats-bar { gap: 12px; }
+  .stat-item .num { font-size: 22px; }
+  .c-stats  { grid-template-columns: repeat(3, 1fr); }
+  .action-cards { grid-template-columns: repeat(3, 1fr); }
+  .action-card  { padding: 16px 10px; }
+  .action-card h3 { font-size: 12px; }
+  .admin-content { padding: 12px; }
+}
+
+/* ── Sidebar toggle — oculto en desktop ─ */
+.sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 15px;
+  margin-right: 12px;
+  transition: all var(--trans);
+  flex-shrink: 0;
+}

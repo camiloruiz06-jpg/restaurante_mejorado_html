@@ -752,11 +752,15 @@ function showAdmin(section = 'dashboard') {
           </button>
         </nav>
       </aside>
+      <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleSidebar()"></div>
       <main class="admin-main">
         <div class="admin-topbar">
-          <div class="topbar-title">
-            <h1 id="s-title">Cargando...</h1>
-            <p id="s-sub"></p>
+          <div style="display:flex;align-items:center;flex:1;min-width:0">
+            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Menú"><i class="fas fa-bars"></i></button>
+            <div class="topbar-title">
+              <h1 id="s-title">Cargando...</h1>
+              <p id="s-sub"></p>
+            </div>
           </div>
           <div id="topbar-actions"></div>
         </div>
@@ -768,6 +772,11 @@ function showAdmin(section = 'dashboard') {
   `;
 
   loadAdminSection(section);
+}
+
+function toggleSidebar() {
+  document.querySelector('.sidebar')?.classList.toggle('open');
+  document.getElementById('sidebar-backdrop')?.classList.toggle('show');
 }
 
 function loadAdminSection(s) {
@@ -869,7 +878,7 @@ function renderCl(list) {
       </div>
       <div class="c-actions">
         <button class="btn btn-info btn-icon btn-sm" onclick="modalEditarCliente(${c.id_cliente})" title="Editar"><i class="fas fa-edit"></i></button>
-        <button class="btn btn-danger btn-icon btn-sm" onclick="eliminarCliente(${c.id_cliente},'${c.nombre_cliente.replace(/'/g,"\\'")}')}" title="Eliminar"><i class="fas fa-trash"></i></button>
+        <button class="btn btn-danger btn-icon btn-sm" onclick="eliminarCliente(${c.id_cliente},'${c.nombre_cliente.replace(/'/g,"\\'")}')" title="Eliminar"><i class="fas fa-trash"></i></button>
       </div>
     </div>`).join('');
 }
@@ -1017,9 +1026,19 @@ async function guardarMesa() {
 }
 
 async function actualizarMesa(id) {
-  const cap=document.getElementById('m-cap').value; const ubi=document.getElementById('m-ubi').value; const est=document.getElementById('m-est').value;
-  await db.from('mesas').update({capacidad:parseInt(cap),ubicacion:ubi,estado:est}).eq('id_mesa',id);
-  closeModal(); showToast('Mesa actualizada.','success'); loadMesas();
+  const cap=parseInt(document.getElementById('m-cap').value);
+  const ubi=document.getElementById('m-ubi').value;
+  const est=document.getElementById('m-est').value;
+  await db.from('mesas').update({capacidad:cap,ubicacion:ubi,estado:est}).eq('id_mesa',id);
+  const hoy=new Date().toISOString().split('T')[0];
+  const {data:conflictos}=await db.from('reservas').select('id_reservas').eq('id_mesa',id).eq('estado_reserva','confirmada').gt('numero_personas',cap).gte('fecha',hoy);
+  closeModal();
+  if(conflictos?.length>0){
+    showToast(`Mesa actualizada. ⚠️ ${conflictos.length} reserva(s) activa(s) tienen más personas que la nueva capacidad.`,'info');
+  } else {
+    showToast('Mesa actualizada.','success');
+  }
+  loadMesas();
 }
 
 async function eliminarMesa(id) {
@@ -1136,6 +1155,9 @@ async function actualizarR(id) {
   const pe=document.getElementById('m-pe').value;
   const es=document.getElementById('m-es')?.value||'confirmada';
   await db.from('reservas').update({id_cliente:parseInt(cl),id_mesa:parseInt(me),fecha:fe,hora:ho,numero_personas:parseInt(pe),estado_reserva:es}).eq('id_reservas',id);
+  const {data:cliArr}=await db.from('clientes').select('correo,nombre_cliente').eq('id_cliente',parseInt(cl));
+  const cli=cliArr?.[0];
+  if(cli) enviarEmailReserva(cli.correo,cli.nombre_cliente,{id,fecha:fe,hora:ho,mesa:me,personas:pe,estado:es==='cancelada'?'cancelada':'modificada'});
   closeModal(); showToast('Reserva actualizada.','success'); loadReservas();
 }
 
@@ -1375,26 +1397,44 @@ async function confirmarR() {
 }
 
 async function loadCMis() {
+  window._cmisFiltro = 'todos';
+  window._cmisOrden  = 'proximas';
   document.getElementById('cc').innerHTML=`
     <h2 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:20px"><i class="fas fa-calendar-check" style="color:var(--gold);margin-right:8px"></i>Mis Reservas</h2>
-    <div class="filters-bar">
+    <div class="filters-bar" style="flex-wrap:wrap;gap:10px">
       <div class="btn-group">
-        <button class="btn-toggle active" onclick="filtCMis(this,'todos')">Todas</button>
-        <button class="btn-toggle" onclick="filtCMis(this,'confirmada')">Confirmadas</button>
-        <button class="btn-toggle" onclick="filtCMis(this,'cancelada')">Canceladas</button>
+        <button class="btn-toggle cmis-f active" onclick="filtCMis(this,'todos')">Todas</button>
+        <button class="btn-toggle cmis-f" onclick="filtCMis(this,'confirmada')">Confirmadas</button>
+        <button class="btn-toggle cmis-f" onclick="filtCMis(this,'cancelada')">Canceladas</button>
+      </div>
+      <div class="btn-group">
+        <button class="btn-toggle cmis-s active" onclick="sortCMis(this,'proximas')"><i class="fas fa-arrow-up"></i> Próximas</button>
+        <button class="btn-toggle cmis-s" onclick="sortCMis(this,'recientes')"><i class="fas fa-arrow-down"></i> Recientes</button>
       </div>
     </div>
     <div id="ml"><div class="loading"><div class="spinner"></div></div></div>`;
-  await cargarCMis('todos');
+  await cargarCMis();
 }
 
-async function cargarCMis(est='todos') {
-  let q=db.from('reservas').select('*, mesas(ubicacion,capacidad)').eq('id_cliente',state.user.id_cliente).order('fecha',{ascending:false});
+async function cargarCMis() {
+  const est=window._cmisFiltro||'todos';
+  const orden=window._cmisOrden||'proximas';
+  let q=db.from('reservas').select('*, mesas(ubicacion,capacidad)').eq('id_cliente',state.user.id_cliente).order('fecha',{ascending:true});
   if(est!=='todos') q=q.eq('estado_reserva',est);
   const {data}=await q;
+  // Ordenar: próximas primero o más recientes primero
+  const hoy=new Date().toISOString().split('T')[0];
+  let sorted=data||[];
+  if(orden==='proximas'){
+    const prox=sorted.filter(r=>r.fecha>=hoy).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+    const pas=sorted.filter(r=>r.fecha<hoy).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+    sorted=[...prox,...pas];
+  } else {
+    sorted=[...sorted].sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  }
   const ml=document.getElementById('ml'); if(!ml) return;
-  if(!data?.length){ml.innerHTML=`<div class="empty-state"><i class="fas fa-calendar-times"></i><h3>Sin reservas</h3><p>¡Haz tu primera reserva!</p><button class="btn btn-gold" style="margin-top:16px" onclick="showCliente('nueva')"><i class="fas fa-plus"></i> Nueva Reserva</button></div>`;return;}
-  ml.innerHTML=data.map(r=>{
+  if(!sorted.length){ml.innerHTML=`<div class="empty-state"><i class="fas fa-calendar-times"></i><h3>Sin reservas</h3><p>¡Haz tu primera reserva!</p><button class="btn btn-gold" style="margin-top:16px" onclick="showCliente('nueva')"><i class="fas fa-plus"></i> Nueva Reserva</button></div>`;return;}
+  ml.innerHTML=sorted.map(r=>{
     const can=r.estado_reserva==='cancelada', obs=r.observaciones?.trim();
     return `<div class="reserva-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -1415,12 +1455,15 @@ async function cargarCMis(est='todos') {
   }).join('');
 }
 
-function filtCMis(btn,e){document.querySelectorAll('.btn-toggle').forEach(b=>b.classList.remove('active'));btn.classList.add('active');cargarCMis(e);}
+function filtCMis(btn,e){document.querySelectorAll('.cmis-f').forEach(b=>b.classList.remove('active'));btn.classList.add('active');window._cmisFiltro=e;cargarCMis();}
+function sortCMis(btn,orden){document.querySelectorAll('.cmis-s').forEach(b=>b.classList.remove('active'));btn.classList.add('active');window._cmisOrden=orden;cargarCMis();}
 
 async function modalEditarCR(id) {
-  const {data}=await db.from('reservas').select('*').eq('id_reservas',id);
+  const {data}=await db.from('reservas').select('*, mesas(capacidad)').eq('id_reservas',id);
   if(!data?.length) return;
   const r=data[0];
+  window._editCapacidad = r.mesas?.capacidad || 999;
+  window._editMesa = r.id_mesa;
   openModal(`
     <h2><i class="fas fa-edit"></i> Editar Reserva #${r.id_reservas}</h2>
     <div class="form-group"><label>Nueva fecha</label><input class="inp" id="m-fe" type="text" placeholder="Selecciona una fecha..." readonly/></div>
@@ -1436,7 +1479,7 @@ async function modalEditarCR(id) {
           }).join('')}
       </select>
     </div>
-    <div class="form-group"><label>Personas</label><input class="inp" id="m-pe" type="number" min="1" value="${r.numero_personas}"/></div>
+    <div class="form-group"><label>Personas <span style="font-size:11px;color:var(--text-soft)">(máx. ${r.mesas?.capacidad||'?'})</span></label><input class="inp" id="m-pe" type="number" min="1" max="${r.mesas?.capacidad||99}" value="${r.numero_personas}"/></div>
     ${r.observaciones ? `<div class="form-group"><label>Solicitudes especiales</label><div style="background:var(--bg-card2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text-soft);font-style:italic"><i class='fas fa-sticky-note' style='margin-right:6px;color:var(--gold)'></i>${r.observaciones}</div></div>` : ''}
     <div id="m-e" style="color:var(--error);font-size:12px;display:none;margin-bottom:8px"></div>
     <div class="modal-footer">
@@ -1453,8 +1496,10 @@ async function guardarCR(id) {
   const e=document.getElementById('m-e');
   const hoy=new Date().toISOString().split('T')[0];
   if(fe<hoy){e.textContent='No puedes reservar en una fecha pasada.';e.style.display='block';return;}
+  if(parseInt(pe)>(window._editCapacidad||999)){e.textContent=`Esta mesa solo tiene capacidad para ${window._editCapacidad} personas.`;e.style.display='block';return;}
   await db.from('reservas').update({fecha:fe,hora:ho,numero_personas:parseInt(pe)}).eq('id_reservas',id);
-  closeModal(); showToast('Reserva actualizada.','success'); cargarCMis('todos');
+  enviarEmailReserva(state.user.correo, state.user.nombre_cliente, {id,fecha:fe,hora:ho,mesa:window._editMesa,personas:pe,estado:'modificada'});
+  closeModal(); showToast('Reserva actualizada.','success'); cargarCMis();
 }
 
 async function cancelarCR(id) {
@@ -1497,7 +1542,38 @@ async function loadCPerfil() {
         <div class="c-stat"><div class="num" style="color:var(--error)">${total-act}</div><div class="lbl">Canceladas</div></div>
       </div>
       <button class="btn btn-danger btn-full" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</button>
+    </div>
+    <div class="card" style="max-width:460px;margin-top:16px">
+      <div class="card-header"><h3><i class="fas fa-user-edit" style="color:var(--gold);margin-right:8px"></i>Editar perfil</h3></div>
+      <div class="form-group"><label>Nombre</label><input class="inp" id="p-nom" type="text" value="${u.nombre_cliente}"/></div>
+      <div class="form-group"><label>Correo</label><input class="inp" id="p-cor" type="email" value="${u.correo}"/></div>
+      <div class="form-group"><label>Teléfono</label><input class="inp" id="p-tel" type="tel" value="${u.telefono||''}" maxlength="10"/></div>
+      <div class="form-group"><label>Nueva contraseña <span style="font-size:11px;color:var(--text-soft)">(vacío = no cambiar)</span></label><input class="inp" id="p-pwd" type="password" placeholder="Nueva contraseña..."/></div>
+      <div id="p-e" style="color:var(--error);font-size:12px;display:none;margin-bottom:8px;padding:8px;background:rgba(239,83,80,0.08);border-radius:8px"></div>
+      <button class="btn btn-gold btn-full" onclick="guardarPerfil()"><i class="fas fa-save"></i> Guardar cambios</button>
     </div>`;
+}
+
+async function guardarPerfil() {
+  const nom=document.getElementById('p-nom').value.trim();
+  const cor=document.getElementById('p-cor').value.trim();
+  const tel=document.getElementById('p-tel').value.trim();
+  const pwd=document.getElementById('p-pwd').value;
+  const e=document.getElementById('p-e');
+  if(!nom||!cor){e.textContent='Nombre y correo son obligatorios.';e.style.display='block';return;}
+  if(!cor.includes('@')){e.textContent='Correo inválido.';e.style.display='block';return;}
+  if(tel&&!/^\d{10}$/.test(tel)){e.textContent='El teléfono debe tener 10 dígitos.';e.style.display='block';return;}
+  if(cor!==state.user.correo){
+    const {data:ex}=await db.from('clientes').select('id_cliente').eq('correo',cor);
+    if(ex?.length>0){e.textContent='Ese correo ya está en uso.';e.style.display='block';return;}
+  }
+  const datos={nombre_cliente:nom,correo:cor,telefono:tel||null};
+  if(pwd) datos.contrasena=await hashPassword(pwd);
+  const {error}=await db.from('clientes').update(datos).eq('id_cliente',state.user.id_cliente);
+  if(error){e.textContent='Error al guardar.';e.style.display='block';return;}
+  state.user={...state.user,...datos};
+  showToast('Perfil actualizado. ✅','success');
+  loadCPerfil();
 }
 
 // ═══════════════════════════════════════════════
