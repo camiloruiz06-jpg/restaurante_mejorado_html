@@ -1209,7 +1209,7 @@ async function modalReserva(id = null) {
       <button class="btn btn-dark" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-gold" onclick="${r?`actualizarR(${r.id_reservas})`:'guardarR()'}"><i class="fas fa-save"></i> ${r?'Actualizar':'Guardar'}</button>
     </div>`);
-  setTimeout(() => initFlatpickr('m-fe', { defaultDate: r?.fecha || '' }), 0);
+  setTimeout(() => initFlatpickr('m-fe', { defaultDate: r?.fecha || '', minDate: r ? null : 'today' }), 0);
 }
 
 async function guardarR() {
@@ -1224,24 +1224,37 @@ async function guardarR() {
   const {data:cliArr}=await db.from('clientes').select('correo,nombre_cliente').eq('id_cliente',parseInt(cl));
   const cli=cliArr?.[0];
   if(cli) enviarEmailReserva(cli.correo, cli.nombre_cliente, {id:nuevaRes?.[0]?.id_reservas,fecha:fe,hora:ho,mesa:me,personas:pe,estado:'confirmada'});
-  closeModal(); showToast('Reserva creada.','success'); loadReservas();
+  closeModal();
+  showToast('Reserva creada.','success');
+  const {data:fresh}=await db.from('reservas').select('*, clientes(nombre_cliente), mesas(ubicacion, capacidad)').order('fecha',{ascending:false});
+  window._rs=fresh||[];
+  filtrarR();
 }
 
 async function actualizarR(id) {
+  const feEl=document.getElementById('m-fe');
   const cl=document.getElementById('m-cl').value, me=document.getElementById('m-me').value;
-  const fe=document.getElementById('m-fe').value, ho=document.getElementById('m-ho').value;
+  const fe=feEl._flatpickr ? feEl._flatpickr.input.value : feEl.value;
+  const ho=document.getElementById('m-ho').value;
   const pe=document.getElementById('m-pe').value;
   const es=document.getElementById('m-es')?.value||'confirmada';
   const eEl=document.getElementById('m-e');
+  if(!cl||!me||!fe||!ho||!pe){eEl.textContent='Todos los campos son obligatorios.';eEl.style.display='block';return;}
   // Validar capacidad de la mesa
   const {data:mesaArr}=await db.from('mesas').select('capacidad').eq('id_mesa',parseInt(me));
   const capMesa=mesaArr?.[0]?.capacidad;
   if(capMesa&&parseInt(pe)>capMesa){eEl.textContent=`La mesa ${me} solo tiene capacidad para ${capMesa} personas.`;eEl.style.display='block';return;}
-  await db.from('reservas').update({id_cliente:parseInt(cl),id_mesa:parseInt(me),fecha:fe,hora:ho,numero_personas:parseInt(pe),estado_reserva:es}).eq('id_reservas',id);
+  const {error}=await db.from('reservas').update({id_cliente:parseInt(cl),id_mesa:parseInt(me),fecha:fe,hora:ho,numero_personas:parseInt(pe),estado_reserva:es}).eq('id_reservas',id);
+  if(error){eEl.textContent=error.message.includes('unique')?'Esa mesa ya tiene una reserva en esa fecha y hora.':'Error al actualizar: '+error.message;eEl.style.display='block';return;}
   const {data:cliArr}=await db.from('clientes').select('correo,nombre_cliente').eq('id_cliente',parseInt(cl));
   const cli=cliArr?.[0];
   if(cli) enviarEmailReserva(cli.correo,cli.nombre_cliente,{id,fecha:fe,hora:ho,mesa:me,personas:pe,estado:es==='cancelada'?'cancelada':'modificada'});
-  closeModal(); showToast('Reserva actualizada.','success'); loadReservas();
+  closeModal();
+  showToast('Reserva actualizada.','success');
+  // Recargar datos sin re-renderizar toda la sección
+  const {data:fresh}=await db.from('reservas').select('*, clientes(nombre_cliente), mesas(ubicacion, capacidad)').order('fecha',{ascending:false});
+  window._rs=fresh||[];
+  filtrarR();
 }
 
 async function cancelarR(id) {
@@ -1250,7 +1263,10 @@ async function cancelarR(id) {
   await db.from('reservas').update({estado_reserva:'cancelada'}).eq('id_reservas',id);
   const rv=rvArr?.[0];
   if(rv?.clientes) enviarEmailReserva(rv.clientes.correo, rv.clientes.nombre_cliente, {id,fecha:rv.fecha,hora:rv.hora,mesa:rv.id_mesa,personas:rv.numero_personas,estado:'cancelada'});
-  showToast('Reserva cancelada.','info'); loadReservas();
+  showToast('Reserva cancelada.','info');
+  const {data:fresh}=await db.from('reservas').select('*, clientes(nombre_cliente), mesas(ubicacion, capacidad)').order('fecha',{ascending:false});
+  window._rs=fresh||[];
+  filtrarR();
 }
 
 // ── HISTORIAL ─────────────────────────────────
