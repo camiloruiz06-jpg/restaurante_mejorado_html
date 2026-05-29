@@ -1029,15 +1029,74 @@ async function actualizarMesa(id) {
   const cap=parseInt(document.getElementById('m-cap').value);
   const ubi=document.getElementById('m-ubi').value;
   const est=document.getElementById('m-est').value;
-  await db.from('mesas').update({capacidad:cap,ubicacion:ubi,estado:est}).eq('id_mesa',id);
+
+  // Verificar conflictos ANTES de guardar
   const hoy=new Date().toISOString().split('T')[0];
-  const {data:conflictos}=await db.from('reservas').select('id_reservas').eq('id_mesa',id).eq('estado_reserva','confirmada').gt('numero_personas',cap).gte('fecha',hoy);
-  closeModal();
+  const {data:conflictos}=await db.from('reservas')
+    .select('id_reservas,fecha,hora,numero_personas,clientes(nombre_cliente,correo,telefono)')
+    .eq('id_mesa',id).eq('estado_reserva','confirmada')
+    .gt('numero_personas',cap).gte('fecha',hoy);
+
   if(conflictos?.length>0){
-    showToast(`Mesa actualizada. ⚠️ ${conflictos.length} reserva(s) activa(s) tienen más personas que la nueva capacidad.`,'info');
-  } else {
-    showToast('Mesa actualizada.','success');
+    // Guardar datos temporalmente para usarlos en las funciones siguientes
+    window._mesaEditTemp={id,cap,ubi,est,ids:conflictos.map(r=>r.id_reservas)};
+    closeModal();
+    openModal(`
+      <h2><i class="fas fa-exclamation-triangle" style="color:var(--warning)"></i> Conflicto de capacidad</h2>
+      <p style="font-size:13px;color:var(--text-soft);margin-bottom:16px">
+        La nueva capacidad (<strong style="color:var(--gold)">${cap} personas</strong>) es menor que las personas en
+        <strong>${conflictos.length}</strong> reserva(s) activa(s):
+      </p>
+      <div style="background:var(--bg-card2);border-radius:8px;padding:4px 12px;margin-bottom:20px;max-height:180px;overflow-y:auto">
+        ${conflictos.map(r=>`
+          <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:700;color:var(--gold)">#${r.id_reservas} — ${r.clientes?.nombre_cliente||'—'}</span>
+              <span style="font-size:12px;color:var(--error);font-weight:700;background:rgba(239,83,80,0.1);padding:2px 8px;border-radius:4px">${r.numero_personas} personas</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-soft);display:flex;flex-wrap:wrap;gap:10px">
+              <span><i class="fas fa-calendar" style="color:var(--gold);margin-right:3px"></i>${r.fecha} ${r.hora?.substring(0,5)}</span>
+              <span><i class="fas fa-envelope" style="color:var(--gold);margin-right:3px"></i>${r.clientes?.correo||'—'}</span>
+              ${r.clientes?.telefono?`<span><i class="fas fa-phone" style="color:var(--gold);margin-right:3px"></i>${r.clientes.telefono}</span>`:''}
+            </div>
+          </div>`).join('')}
+      </div>
+      <p style="font-size:12px;color:var(--text-soft);margin-bottom:16px">¿Qué deseas hacer con esas reservas?</p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-danger btn-full" onclick="confirmarMesaConCancelacion()">
+          <i class="fas fa-ban"></i> Guardar mesa y cancelar esas reservas
+        </button>
+        <button class="btn btn-dark btn-full" onclick="confirmarMesaSinCancelacion()">
+          <i class="fas fa-save"></i> Guardar mesa y dejar las reservas como están
+        </button>
+        <button class="btn btn-outline-gold btn-full" onclick="closeModal()">
+          <i class="fas fa-arrow-left"></i> Volver y no guardar
+        </button>
+      </div>`);
+    return;
   }
+
+  // Sin conflictos → guardar directamente
+  await db.from('mesas').update({capacidad:cap,ubicacion:ubi,estado:est}).eq('id_mesa',id);
+  closeModal(); showToast('Mesa actualizada.','success'); loadMesas();
+}
+
+async function confirmarMesaConCancelacion() {
+  const {id,cap,ubi,est,ids}=window._mesaEditTemp||{};
+  if(!id) return;
+  await db.from('mesas').update({capacidad:cap,ubicacion:ubi,estado:est}).eq('id_mesa',id);
+  if(ids?.length>0) await db.from('reservas').update({estado_reserva:'cancelada'}).in('id_reservas',ids);
+  closeModal();
+  showToast(`Mesa actualizada. ${ids?.length||0} reserva(s) cancelada(s).`,'info');
+  loadMesas();
+}
+
+async function confirmarMesaSinCancelacion() {
+  const {id,cap,ubi,est}=window._mesaEditTemp||{};
+  if(!id) return;
+  await db.from('mesas').update({capacidad:cap,ubicacion:ubi,estado:est}).eq('id_mesa',id);
+  closeModal();
+  showToast('Mesa actualizada. Las reservas existentes no fueron modificadas.','success');
   loadMesas();
 }
 
@@ -1154,6 +1213,11 @@ async function actualizarR(id) {
   const fe=document.getElementById('m-fe').value, ho=document.getElementById('m-ho').value;
   const pe=document.getElementById('m-pe').value;
   const es=document.getElementById('m-es')?.value||'confirmada';
+  const eEl=document.getElementById('m-e');
+  // Validar capacidad de la mesa
+  const {data:mesaArr}=await db.from('mesas').select('capacidad').eq('id_mesa',parseInt(me));
+  const capMesa=mesaArr?.[0]?.capacidad;
+  if(capMesa&&parseInt(pe)>capMesa){eEl.textContent=`La mesa ${me} solo tiene capacidad para ${capMesa} personas.`;eEl.style.display='block';return;}
   await db.from('reservas').update({id_cliente:parseInt(cl),id_mesa:parseInt(me),fecha:fe,hora:ho,numero_personas:parseInt(pe),estado_reserva:es}).eq('id_reservas',id);
   const {data:cliArr}=await db.from('clientes').select('correo,nombre_cliente').eq('id_cliente',parseInt(cl));
   const cli=cliArr?.[0];
